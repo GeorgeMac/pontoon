@@ -1,10 +1,10 @@
 package main
 
 import (
-	"archive/tar"
-	"bytes"
 	"fmt"
-	"github.com/GeorgeMac/pontoon/archive"
+	"github.com/GeorgeMac/pontoon/build"
+	"github.com/GeorgeMac/pontoon/config"
+	"github.com/GeorgeMac/pontoon/project"
 	"github.com/fsouza/go-dockerclient"
 	"os"
 	"time"
@@ -13,40 +13,34 @@ import (
 var now func() time.Time = time.Now
 
 func main() {
-	client, err := docker.NewClient("tcp://localhost:4243")
+	opts := config.ParseOptions()
+
+	client, err := docker.NewClient(opts.Host)
 	if err != nil {
 		panic(err)
 	}
 
-	input := bytes.NewBuffer(nil)
-	tr := tar.NewWriter(input)
+	fmt.Println("Fetching repository ", opts.Url)
 
-	dir, err := os.Getwd()
+	projects, err := project.NewGitProjects(opts.Dir)
 	if err != nil {
 		panic(err)
 	}
 
-	if err := archive.Dir(dir, tr); err != nil {
-		panic(err)
-	}
-
-	tr.Close()
-
-	if err := client.BuildImage(docker.BuildImageOptions{
-		Name:           "georgemac/demo",
-		InputStream:    input,
-		OutputStream:   os.Stdout,
-		RmTmpContainer: true,
-	}); err != nil {
-		panic(err)
-	}
-
-	images, err := client.ListImages(false)
+	project, err := projects.Get(opts.Url)
 	if err != nil {
 		panic(err)
 	}
 
-	for _, image := range images {
-		fmt.Printf("%+v\n", image)
+	builder := build.NewBuilder(client, os.Stdout)
+	if err := builder.BuildProject(project, "georgemac/hellos"); err != nil {
+		panic(err)
 	}
+
+	image, err := client.InspectImage("georgemac/hellos")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("%+v\n", image)
 }

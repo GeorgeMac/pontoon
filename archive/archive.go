@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 )
 
-func Dir(dir string, wr *tar.Writer) error {
+func Dir(dir string, wr io.Writer) error {
+	tr := tar.NewWriter(wr)
+
 	walkFn := func(path string, info os.FileInfo, err error) error {
 		if info.Mode().IsDir() {
 			return nil
@@ -30,11 +32,11 @@ func Dir(dir string, wr *tar.Writer) error {
 		}
 
 		h.Name = rel_path
-		if err = wr.WriteHeader(h); err != nil {
+		if err = tr.WriteHeader(h); err != nil {
 			return err
 		}
 
-		if _, err := io.Copy(wr, fr); err != nil {
+		if _, err := io.Copy(tr, fr); err != nil {
 			return err
 		}
 		return nil
@@ -44,5 +46,5 @@ func Dir(dir string, wr *tar.Writer) error {
 		return err
 	}
 
-	return nil
+	return tr.Close()
 }
