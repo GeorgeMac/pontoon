@@ -5,8 +5,9 @@ import (
 	"github.com/GeorgeMac/pontoon/build"
 	"github.com/GeorgeMac/pontoon/config"
 	"github.com/GeorgeMac/pontoon/project"
+	"github.com/GeorgeMac/pontoon/service"
 	"github.com/fsouza/go-dockerclient"
-	"os"
+	"net/http"
 	"time"
 )
 
@@ -20,27 +21,20 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("Fetching repository ", opts.Url)
-
 	projects, err := project.NewGitProjects(opts.Dir)
 	if err != nil {
 		panic(err)
 	}
 
-	project, err := projects.Get(opts.Url)
-	if err != nil {
-		panic(err)
-	}
+	// construct a project builder for the client
+	builder := build.NewBuilder(client)
 
-	builder := build.NewBuilder(client, os.Stdout)
-	if err := builder.BuildProject(project, "georgemac/hellos"); err != nil {
-		panic(err)
-	}
+	// construct and begin a queue for the builder
+	queue := build.NewBuilderQueue(builder, projects)
+	go queue.Begin()
 
-	image, err := client.InspectImage("georgemac/hellos")
-	if err != nil {
-		panic(err)
-	}
+	s := service.NewService(queue)
 
-	fmt.Printf("%+v\n", image)
+	fmt.Println("Starting service port :8080")
+	http.ListenAndServe(":8080", s)
 }
