@@ -27,10 +27,10 @@ func main() {
 	}
 
 	// construct a project builder for the client
-	builder := build.NewBuilder(client)
+	builder := build.NewBuilder(client, projects)
 
 	// construct and begin a queue for the builder
-	queue := build.NewBuilderQueue(builder, projects)
+	queue := build.NewBuilderQueue(builder)
 	go queue.Begin()
 
 	s := service.NewService(queue)
