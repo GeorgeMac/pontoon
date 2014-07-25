@@ -43,6 +43,7 @@ func (b *BuildJob) Run() error {
 		InputStream:    input,
 		OutputStream:   b.out,
 		RmTmpContainer: true,
+		NoCache:        true,
 	})
 }
 

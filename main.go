@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"github.com/GeorgeMac/pontoon/build"
 	"github.com/GeorgeMac/pontoon/config"
 	"github.com/GeorgeMac/pontoon/jobs"
 	"github.com/GeorgeMac/pontoon/project"
 	"github.com/GeorgeMac/pontoon/service"
 	"github.com/fsouza/go-dockerclient"
+	"log"
 	"net/http"
 	"time"
 )
@@ -39,6 +39,6 @@ func main() {
 	// create the new http service
 	s := service.NewService(queue, factory)
 
-	fmt.Println("Starting service port :8080")
+	log.Println("Starting service port :8080")
 	http.ListenAndServe(":8080", s)
 }

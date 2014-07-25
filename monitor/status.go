@@ -1,9 +1,5 @@
 package monitor
 
-import (
-	"fmt"
-)
-
 // Status is an enum, which describes the state of a Job
 type Status int
 
@@ -20,5 +16,10 @@ const (
 type Trackable interface {
 	Status() Status
 	Output() (string, error)
-	fmt.Stringer
+	Report() TrackableReport
+}
+
+type TrackableReport struct {
+	Name   string `json:"name"`
+	Status Status `json:"status"`
 }

@@ -29,6 +29,7 @@ func NewService(queue *jobs.JobQueue, fact *build.BuildJobFactory) (s *Service) 
 		mont:   monitor.NewMonitor(),
 	}
 	s.router.Methods("POST").Subrouter().HandleFunc("/jobs", s.submit)
+	s.router.Methods("Get").Subrouter().HandleFunc("/jobs", s.list)
 	return
 }
 
@@ -47,7 +48,10 @@ type BuildResponse struct {
 }
 
 func (s *Service) list(w http.ResponseWriter, req *http.Request) {
-
+	if err := json.NewEncoder(w).Encode(s.mont.List()); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	return
 }
 
 func (s *Service) submit(w http.ResponseWriter, req *http.Request) {
@@ -69,11 +73,11 @@ func (s *Service) submit(w http.ResponseWriter, req *http.Request) {
 	// wrap in a jobs.Job
 	job := jobs.NewJob(bj)
 
-	if st := s.mont.Status(request.Name); st > monitor.UNKNOWN {
+	if st := s.mont.Report(request.Name); st.Status > monitor.UNKNOWN {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(&BuildResponse{
 			Msg:    fmt.Sprintf("Build with name %s already exists", request.Name),
-			Status: fmt.Sprintf("%d", st),
+			Status: fmt.Sprintf("%d", st.Status),
 		})
 	}
 

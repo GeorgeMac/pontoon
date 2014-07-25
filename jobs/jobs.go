@@ -69,11 +69,13 @@ func (j *Job) Output() (string, error) {
 	return j.output, nil
 }
 
-func (j *Job) String() string {
+func (j *Job) Report() monitor.TrackableReport {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
-	msg := "Job created at: %v for Executor: %v Status: %v"
-	return fmt.Sprintf(msg, j.CreatedAt, j.exec, j.st)
+	return monitor.TrackableReport{
+		Name:   j.exec.String(),
+		Status: j.st,
+	}
 }
 
 // begin sets the job status to active and returns the build.BuildJob

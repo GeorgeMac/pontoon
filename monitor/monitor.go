@@ -42,16 +42,32 @@ func (m *Monitor) Put(id string, t Trackable) (err error) {
 	return
 }
 
-func (m *Monitor) Status(id string) Status {
+func (m *Monitor) Report(id string) TrackableReport {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	t, ok := m.mo[id]
 	if !ok {
-		return UNKNOWN
+		return TrackableReport{
+			Name:   "id",
+			Status: UNKNOWN,
+		}
 	}
 
-	return t.Status()
+	return t.Report()
+}
+
+func (m *Monitor) List() (t []TrackableReport) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	t = make([]TrackableReport, 0)
+
+	for _, v := range m.mo {
+		t = append(t, v.Report())
+	}
+
+	return
 }
 
 type TrackableExistsError struct {
