@@ -7,50 +7,49 @@ import (
 	"io"
 )
 
-type Builder struct {
-	client   *docker.Client
-	projects project.Projects
+type BuildJobFactory struct {
+	Client   *docker.Client
+	Projects project.Projects
 }
 
-func NewBuilder(client *docker.Client, projects project.Projects) *Builder {
-	return &Builder{
-		client:   client,
-		projects: projects,
+func (b *BuildJobFactory) NewJob(name, url string) (bj *BuildJob, err error) {
+	var p project.Project
+	if p, err = b.Projects.Get(url); err != nil {
+		return
 	}
+
+	return &BuildJob{
+		name:    name,
+		client:  b.Client,
+		project: p,
+	}, nil
 }
 
-func (b *Builder) BuildProject(job *BuildJob) error {
-	defer close(job.Done)
+type BuildJob struct {
+	name    string
+	project project.Project
+	client  *docker.Client
+	out     io.Writer
+}
 
-	p, err := b.projects.Get(job.Url)
-	if err != nil {
-		return err
-	}
-
+func (b *BuildJob) Run() error {
 	input := bytes.NewBuffer(nil)
-	if err := p.WriteTo(input); err != nil {
+	if err := b.project.WriteTo(input); err != nil {
 		return err
 	}
 
 	return b.client.BuildImage(docker.BuildImageOptions{
-		Name:           n,
+		Name:           b.name,
 		InputStream:    input,
-		OutputStream:   o,
+		OutputStream:   b.out,
 		RmTmpContainer: true,
 	})
 }
 
-type BuildJob struct {
-	Url  string `json:"url"`
-	Name string `json:"name"`
-	Out  io.Writer
-	Done chan struct{}
+func (b *BuildJob) SetOutput(wr io.Writer) {
+	b.out = wr
 }
 
-func NewBuildJob(url, name string) *BuildJob {
-	return &BuildJob{
-		Url:  url,
-		Name: name,
-		Done: make(chan struct{}),
-	}
+func (b *BuildJob) String() string {
+	return b.name
 }

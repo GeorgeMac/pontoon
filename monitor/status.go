@@ -1,10 +1,15 @@
 package monitor
 
+import (
+	"fmt"
+)
+
 // Status is an enum, which describes the state of a Job
 type Status int
 
 const (
-	PENDING Status = iota
+	UNKNOWN Status = iota
+	PENDING
 	ACTIVE
 	COMPLETE
 	FAILED
@@ -15,4 +20,5 @@ const (
 type Trackable interface {
 	Status() Status
 	Output() (string, error)
+	fmt.Stringer
 }

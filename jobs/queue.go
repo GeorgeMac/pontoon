@@ -32,6 +32,9 @@ func (q *JobQueue) begin() {
 			exec, err := job.begin()
 			if err != nil {
 				log.Println(err.Error())
+				if _, ok := err.(JobBegunError); ok {
+					continue
+				}
 				job.Signal <- monitor.FAILED
 				continue
 			}

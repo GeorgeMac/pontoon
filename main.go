@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/GeorgeMac/pontoon/build"
 	"github.com/GeorgeMac/pontoon/config"
+	"github.com/GeorgeMac/pontoon/jobs"
 	"github.com/GeorgeMac/pontoon/project"
 	"github.com/GeorgeMac/pontoon/service"
 	"github.com/fsouza/go-dockerclient"
@@ -26,14 +27,17 @@ func main() {
 		panic(err)
 	}
 
-	// construct a project builder for the client
-	builder := build.NewBuilder(client, projects)
+	// construct a build job factory
+	factory := &build.BuildJobFactory{
+		Client:   client,
+		Projects: projects,
+	}
 
-	// construct and begin a queue for the builder
-	queue := build.NewBuilderQueue(builder)
-	go queue.Begin()
+	// construct and begin a queue for jobs
+	queue := jobs.NewJobQueue(1)
 
-	s := service.NewService(queue)
+	// create the new http service
+	s := service.NewService(queue, factory)
 
 	fmt.Println("Starting service port :8080")
 	http.ListenAndServe(":8080", s)
