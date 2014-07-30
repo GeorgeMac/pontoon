@@ -8,34 +8,69 @@ Currently only has one test. This is mostly just an experiment!
 ##### Current Capabilities
 ``` pontoon -d “/var/pontoon” -h “tcp://localhost:4321” ```
 
-1. Pulls git projects down in to `/var/pontoon`.
-2. Connects to docker at host `tcp://localhost:4321`.
-3. Post a build job to `http://localhost:8080/jobs` in the following JSON format:
+- Pulls git projects down in to `/var/pontoon`.
+- Connects to docker at host `tcp://localhost:4321`.
 
-	```json
-	{
-		“name”:”georgemac/demo”,
-		“url”:”http://github.com/GeorgeMac/hello-server”
-	}
-	```
-4. Get a list of jobs and their status currently retained in memory.
+##### API
 
-	```bash
-	curl localhost:8080/jobs
-	```
-	for example might return:
-	```json
-	[{"name":"georgemac/demo", "status":2}]
-	```
+```
+GET  /jobs - List of current build jobs that can be built
+```
+Get a list of jobs and their status currently retained in memory.
 
-	Until I stringify those status see `monitor.Status` enum. Currently they correspond as follows:
-	```
-	0: UNKNOWN
-	1: PENDING
-	2: ACTIVE
-	3: COMPLETE
-	4: FAILED
-	```
-	These are likely to change in the coming future.
+```bash
+curl localhost:8080/jobs
+```
+for example might return:
+```json
+[{"name":"georgemac", "status":"READY"}]
+```
+---
+```
+POST /jobs - Send a new job
+```
 
-Again remember this is all experimental and very much untested. By keep watching!
+Post a build job to `http://localhost:8080/jobs` in the following JSON format:
+
+```json
+{
+	“name”:”georgemac”,
+	“url”:”http://github.com/GeorgeMac/hello-server”
+}
+```
+---
+```
+GET  /jobs/{id} - Full report of job with {id} and its previous builds
+```
+Get a summary of a job, including it's previous builds.
+
+###### example
+``` bash
+curl http://localhost:8080/job/georgemac
+```
+###### response
+```
+{
+  "status": "READY",
+  "name": "georgemac",
+  "Previous": [
+    {
+      "output": "Build job for executor georgemac created at 2014-07-30 18:55:13.46836866 +0100 BST\nStep 0 : FROM google/golang\n ---> fa77fdfe2188\nStep 1 : MAINTAINER George MacRorie github.com/GeorgeMac\n ---> Running in 42c931c2922b\n ---> fdd04f4eb080\nStep 2 : WORKDIR /gopath/src/hello-server\n ---> Running in e7e3305fffec\n ---> f0f542ed4a20\nStep 3 : ADD . /gopath/src/hello-server/\n ---> 4d9d0620a581\nStep 4 : RUN pwd\n ---> Running in f43cd7eee77b\n/gopath/src/hello-server\n ---> a5597e5995df\nStep 5 : RUN go test ./...\n ---> Running in 8ea120200e0d\nok  \thello-server\t0.003s\n ---> 1bb64e351798\nStep 6 : RUN go install ./...\n ---> Running in 0b0290b9e1e8\n ---> dba44cc36663\nStep 7 : CMD []\n ---> Running in e1459201db2c\n ---> 8a7750276d0d\nStep 8 : ENTRYPOINT [\"/gopath/bin/hello-server\"]\n ---> Running in 27773dea008f\n ---> 4d973cdb40eb\nSuccessfully built 4d973cdb40eb\nRemoving intermediate container 42c931c2922b\nRemoving intermediate container e7e3305fffec\nRemoving intermediate container a339c7e1858f\nRemoving intermediate container f43cd7eee77b\nRemoving intermediate container 8ea120200e0d\nRemoving intermediate container 0b0290b9e1e8\nRemoving intermediate container e1459201db2c\nRemoving intermediate container 27773dea008f\n",
+      "id": 1,
+      "status": "COMPLETE"
+    }
+  ]
+}
+```
+
+---
+```
+POST /jobs/{id} - Trigger a new build for job with {id}
+```
+###### example
+```bash
+curl -X POST http://localhost:8080/job/georgemac
+```
+This will trigger a build of the job with id `georgemac`
+
+Again remember this is all experimental and very much untested. Keep watching!
