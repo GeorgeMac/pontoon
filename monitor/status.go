@@ -5,21 +5,54 @@ type Status int
 
 const (
 	UNKNOWN Status = iota
+	READY
 	PENDING
 	ACTIVE
 	COMPLETE
 	FAILED
+	ABORTED
 )
 
-// Trackable defines the type of something which identifiable, has a
-// status and a final output upon completion (Status() -> COMPLETE).
-type Trackable interface {
-	Status() Status
-	Output() (string, error)
-	Report() TrackableReport
+func (s Status) String() string {
+	switch s {
+	case UNKNOWN:
+		return "UNKNOWN"
+	case READY:
+		return "READY"
+	case PENDING:
+		return "PENDING"
+	case ACTIVE:
+		return "ACTIVE"
+	case COMPLETE:
+		return "COMPLETE"
+	case FAILED:
+		return "FAILED"
+	case ABORTED:
+		return "ABORTED"
+	default:
+		return "UNEXPECTED STATUS"
+	}
 }
 
-type TrackableReport struct {
+// Reportable can produce a Report struct. This report should have a
+// status < COMPLETE. It can also produce a slice of previous Completed.
+type Reportable interface {
+	Report() Report
+	Previous() []CompletedReport
+}
+
+type FullReport struct {
+	Report
+	Previous []CompletedReport
+}
+
+type Report struct {
 	Name   string `json:"name"`
-	Status Status `json:"status"`
+	Status string `json:"status"`
+}
+
+type CompletedReport struct {
+	Status string `json:"status"`
+	Id     int16  `json:"id"`
+	Output string `json:"output"`
 }

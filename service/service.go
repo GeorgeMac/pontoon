@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/GeorgeMac/pontoon/build"
 	"github.com/GeorgeMac/pontoon/jobs"
-	"github.com/GeorgeMac/pontoon/monitor"
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
@@ -17,7 +16,7 @@ const BUILD_TIMEOUT time.Duration = 2 * time.Minute
 type Service struct {
 	queue  *jobs.JobQueue
 	fact   *build.BuildJobFactory
-	mont   *monitor.Monitor
+	store  *jobs.Store
 	router *mux.Router
 }
 
@@ -26,10 +25,13 @@ func NewService(queue *jobs.JobQueue, fact *build.BuildJobFactory) (s *Service) 
 		queue:  queue,
 		fact:   fact,
 		router: mux.NewRouter(),
-		mont:   monitor.NewMonitor(),
+		store:  jobs.NewStore(),
 	}
 	s.router.Methods("POST").Subrouter().HandleFunc("/jobs", s.submit)
-	s.router.Methods("Get").Subrouter().HandleFunc("/jobs", s.list)
+	s.router.Methods("GET").Subrouter().HandleFunc("/jobs", s.list)
+
+	s.router.Methods("POST").Subrouter().HandleFunc("/jobs/{id}", s.build)
+	s.router.Methods("GET").Subrouter().HandleFunc("/jobs/{id}", s.job)
 	return
 }
 
@@ -47,11 +49,39 @@ type BuildResponse struct {
 	Status string `json:"status"`
 }
 
-func (s *Service) list(w http.ResponseWriter, req *http.Request) {
-	if err := json.NewEncoder(w).Encode(s.mont.List()); err != nil {
+func (s *Service) job(w http.ResponseWriter, req *http.Request) {
+	id, ok := mux.Vars(req)["id"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	if err := json.NewEncoder(w).Encode(s.store.FullReport(id)); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 	}
-	return
+}
+
+func (s *Service) list(w http.ResponseWriter, req *http.Request) {
+	if err := json.NewEncoder(w).Encode(s.store.List()); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+}
+
+func (s *Service) build(w http.ResponseWriter, req *http.Request) {
+	id, ok := mux.Vars(req)["id"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	job, err := s.store.Get(id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(&BuildResponse{
+			Msg: fmt.Sprintf("Build with name %s is missing", id),
+		})
+	}
+
+	// push the job in to the build queue
+	s.queue.Push(job)
 }
 
 func (s *Service) submit(w http.ResponseWriter, req *http.Request) {
@@ -73,20 +103,17 @@ func (s *Service) submit(w http.ResponseWriter, req *http.Request) {
 	// wrap in a jobs.Job
 	job := jobs.NewJob(bj)
 
-	if st := s.mont.Report(request.Name); st.Status > monitor.UNKNOWN {
+	if st := s.store.Report(request.Name); st.Status != "UNKNOWN" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(&BuildResponse{
 			Msg:    fmt.Sprintf("Build with name %s already exists", request.Name),
-			Status: fmt.Sprintf("%d", st.Status),
+			Status: st.Status,
 		})
 	}
 
-	if err := s.mont.Put(request.Name, job); err != nil {
+	if err := s.store.Put(request.Name, job); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Println(err.Error())
 		return
 	}
-
-	// push the job in to the build queue
-	s.queue.Push(job)
 }

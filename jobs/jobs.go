@@ -24,7 +24,7 @@ type Job struct {
 	st        monitor.Status
 	exec      Executor
 	buffer    *bytes.Buffer
-	output    string
+	comp      []monitor.CompletedReport
 	Signal    chan monitor.Status
 	CreatedAt time.Time
 }
@@ -40,42 +40,28 @@ func NewJob(exec Executor) *Job {
 
 	return &Job{
 		mu:        &sync.RWMutex{},
-		st:        monitor.PENDING,
+		st:        monitor.READY,
 		exec:      exec,
 		buffer:    buffer,
+		comp:      make([]monitor.CompletedReport, 0),
 		Signal:    make(chan monitor.Status),
 		CreatedAt: when,
 	}
 }
 
-// Status obtains a read lock and then returns the Job status
-func (j *Job) Status() (s monitor.Status) {
-	j.mu.RLock()
-	s = j.st
-	j.mu.RUnlock()
-	return
-}
-
-// Output returns the output string of the job, but only once the
-// jobs status has a value of COMPLETE
-func (j *Job) Output() (string, error) {
+func (j *Job) Report() monitor.Report {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
-
-	if j.st < monitor.COMPLETE {
-		return "", JobIncompleteError{}
-	}
-
-	return j.output, nil
-}
-
-func (j *Job) Report() monitor.TrackableReport {
-	j.mu.RLock()
-	defer j.mu.RUnlock()
-	return monitor.TrackableReport{
+	return monitor.Report{
 		Name:   j.exec.String(),
-		Status: j.st,
+		Status: j.st.String(),
 	}
+}
+
+func (j *Job) Previous() []monitor.CompletedReport {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.comp
 }
 
 // begin sets the job status to active and returns the build.BuildJob
@@ -101,7 +87,17 @@ func (j *Job) begin() (Executor, error) {
 func (j *Job) finish() {
 	st := <-j.Signal
 	j.mu.Lock()
-	j.output = j.buffer.String()
+	j.st = monitor.READY
+	j.comp = append(j.comp, monitor.CompletedReport{
+		Status: st.String(),
+		Output: j.buffer.String(),
+		Id:     int16(len(j.comp) + 1),
+	})
+	j.mu.Unlock()
+}
+
+func (j *Job) setStatus(st monitor.Status) {
+	j.mu.Lock()
 	j.st = st
 	j.mu.Unlock()
 }

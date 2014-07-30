@@ -53,6 +53,7 @@ func (q *JobQueue) begin() {
 }
 
 func (q *JobQueue) Push(job *Job) {
+	job.setStatus(monitor.PENDING)
 	q.jobs <- job
 }
 
