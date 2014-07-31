@@ -38,18 +38,20 @@ func (s Status) String() string {
 // status < COMPLETE. It can also produce a slice of previous Completed.
 type Reportable interface {
 	Report() Report
-	Previous() []CompletedReport
+	History() History
 }
 
 type FullReport struct {
 	Report
-	Previous []CompletedReport
+	History History `json:"history"`
 }
 
 type Report struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 }
+
+type History []CompletedReport
 
 type CompletedReport struct {
 	Status string `json:"status"`

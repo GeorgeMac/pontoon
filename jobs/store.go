@@ -73,8 +73,8 @@ func (m *Store) FullReport(id string) monitor.FullReport {
 	}
 
 	return monitor.FullReport{
-		Report:   t.Report(),
-		Previous: t.Previous(),
+		Report:  t.Report(),
+		History: t.History(),
 	}
 }
 

@@ -6,7 +6,7 @@ Very early stage development git project -> docker image service.
 Currently only has one test. This is mostly just an experiment!
 
 ##### Current Capabilities
-``` pontoon -d “/var/pontoon” -h “tcp://localhost:4321” ```
+``` pontoon -d "/var/pontoon" -h "tcp://localhost:4321" ```
 
 - Pulls git projects down in to `/var/pontoon`.
 - Connects to docker at host `tcp://localhost:4321`.
@@ -29,13 +29,16 @@ for example might return:
 ```
 POST /jobs - Send a new job
 ```
+Name and job and attribute it to a git url. Readying it for building.
 
-Post a build job to `http://localhost:8080/jobs` in the following JSON format:
-
+```bash
+curl -X POST -d http://localhost:8080/jobs 
+```
+for example would return:
 ```json
 {
-	“name”:”georgemac”,
-	“url”:”http://github.com/GeorgeMac/hello-server”
+	"name":"georgemac",
+	"url":"http://github.com/GeorgeMac/hello-server"
 }
 ```
 ---
@@ -49,7 +52,7 @@ Get a summary of a job, including it's previous builds.
 curl http://localhost:8080/job/georgemac
 ```
 ###### response
-```
+```json
 {
   "status": "READY",
   "name": "georgemac",

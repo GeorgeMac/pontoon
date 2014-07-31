@@ -24,7 +24,7 @@ type Job struct {
 	st        monitor.Status
 	exec      Executor
 	buffer    *bytes.Buffer
-	comp      []monitor.CompletedReport
+	comp      monitor.History
 	Signal    chan monitor.Status
 	CreatedAt time.Time
 }
@@ -58,7 +58,7 @@ func (j *Job) Report() monitor.Report {
 	}
 }
 
-func (j *Job) Previous() []monitor.CompletedReport {
+func (j *Job) History() monitor.History {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	return j.comp
