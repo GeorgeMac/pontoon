@@ -1,0 +1,19 @@
+{
+	"ImportPath": "github.com/GeorgeMac/pontoon",
+	"GoVersion": "go1.3",
+	"Deps": [
+		{
+			"ImportPath": "github.com/fsouza/go-dockerclient",
+			"Comment": "0.2.1-177-g1948166",
+			"Rev": "194816684825a3abf28d60e5243ec5240608414d"
+		},
+		{
+			"ImportPath": "github.com/gorilla/context",
+			"Rev": "708054d61e5a2918b9f4e9700000ee611dcf03f5"
+		},
+		{
+			"ImportPath": "github.com/gorilla/mux",
+			"Rev": "e718e932ee606838744df844eb75064959eb74bc"
+		}
+	]
+}
