@@ -5,6 +5,29 @@
 Very early stage development git project -> docker image service.
 Currently only has one test. This is mostly just an experiment!
 
+##### API Support
+
+Currently support docker API versions 1.3.0 and above
+
+##### Configuration
+
+Pontoon currently has two main configuration types `docker` and `pontoon`
+
+`docker` is used to configure the location of the docker host to communicate with and TLS pem file locations.
+`pontoon` is used to configure where pontoon pulls and builds git projects, as well as how many workers will be used for building projects.
+
+###### example configuration
+```yaml
+docker:
+    host: tcp://localhost:5432
+    cert_pem: /cert/pem/location.pem
+    ca_pem: /ca/pem/location.pem
+    key_pem: /kep/pem/location.pem
+pontoon:
+    directory: /pontoon/projects/dir
+    workers: 1
+```
+
 ##### Current Capabilities
 ``` pontoon -d "/var/pontoon" -h "tcp://localhost:4321" ```
 
