@@ -7,7 +7,6 @@ package testing
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/fsouza/go-dockerclient"
 	"math/rand"
 	"net"
 	"net/http"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fsouza/go-dockerclient"
 )
 
 func TestNewServer(t *testing.T) {
@@ -339,6 +340,58 @@ func TestInspectContainerNotFound(t *testing.T) {
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("InspectContainer: wrong status code. Want %d. Got %d.", http.StatusNotFound, recorder.Code)
+	}
+}
+
+func TestTopContainer(t *testing.T) {
+	server := DockerServer{}
+	addContainers(&server, 1)
+	server.containers[0].State.Running = true
+	server.buildMuxer()
+	recorder := httptest.NewRecorder()
+	path := fmt.Sprintf("/containers/%s/top", server.containers[0].ID)
+	request, _ := http.NewRequest("GET", path, nil)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Errorf("TopContainer: wrong status. Want %d. Got %d.", http.StatusOK, recorder.Code)
+	}
+	var got docker.TopResult
+	err := json.NewDecoder(recorder.Body).Decode(&got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Titles, []string{"UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"}) {
+		t.Fatalf("TopContainer: Unexpected titles, got: %#v", got.Titles)
+	}
+	if len(got.Processes) != 1 {
+		t.Fatalf("TopContainer: Unexpected process len, got: %d", len(got.Processes))
+	}
+	if got.Processes[0][len(got.Processes[0])-1] != "ls -la .." {
+		t.Fatalf("TopContainer: Unexpected command name, got: %s", got.Processes[0][len(got.Processes[0])-1])
+	}
+}
+
+func TestTopContainerNotFound(t *testing.T) {
+	server := DockerServer{}
+	server.buildMuxer()
+	recorder := httptest.NewRecorder()
+	request, _ := http.NewRequest("GET", "/containers/xyz/top", nil)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("TopContainer: wrong status. Want %d. Got %d.", http.StatusNotFound, recorder.Code)
+	}
+}
+
+func TestTopContainerStopped(t *testing.T) {
+	server := DockerServer{}
+	addContainers(&server, 1)
+	server.buildMuxer()
+	recorder := httptest.NewRecorder()
+	path := fmt.Sprintf("/containers/%s/top", server.containers[0].ID)
+	request, _ := http.NewRequest("GET", path, nil)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Errorf("TopContainer: wrong status. Want %d. Got %d.", http.StatusInternalServerError, recorder.Code)
 	}
 }
 
@@ -780,7 +833,7 @@ func addImages(server *DockerServer, n int, repo bool) {
 
 func TestListImages(t *testing.T) {
 	server := DockerServer{}
-	addImages(&server, 2, false)
+	addImages(&server, 2, true)
 	server.buildMuxer()
 	recorder := httptest.NewRecorder()
 	request, _ := http.NewRequest("GET", "/images/json?all=1", nil)
@@ -791,8 +844,9 @@ func TestListImages(t *testing.T) {
 	expected := make([]docker.APIImages, 2)
 	for i, image := range server.images {
 		expected[i] = docker.APIImages{
-			ID:      image.ID,
-			Created: image.Created.Unix(),
+			ID:       image.ID,
+			Created:  image.Created.Unix(),
+			RepoTags: []string{"docker/python-" + image.ID},
 		}
 	}
 	var got []docker.APIImages
@@ -826,7 +880,8 @@ func TestRemoveImageByName(t *testing.T) {
 	addImages(&server, 1, true)
 	server.buildMuxer()
 	recorder := httptest.NewRecorder()
-	path := "/images/docker/python-" + server.images[0].ID
+	imgName := "docker/python-" + server.images[0].ID
+	path := "/images/" + imgName
 	request, _ := http.NewRequest("DELETE", path, nil)
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNoContent {
@@ -834,6 +889,10 @@ func TestRemoveImageByName(t *testing.T) {
 	}
 	if len(server.images) > 0 {
 		t.Error("RemoveImage: did not remove the image.")
+	}
+	_, ok := server.imgIDs[imgName]
+	if ok {
+		t.Error("RemoveImage: did not remove image tag name.")
 	}
 }
 
@@ -930,5 +989,29 @@ func TestBuildImageWithRemoteDockerfile(t *testing.T) {
 	server.buildImage(recorder, request)
 	if _, ok := server.imgIDs[imageName]; ok == false {
 		t.Errorf("BuildImage: image %s not builded", imageName)
+	}
+}
+
+func TestPing(t *testing.T) {
+	server := DockerServer{}
+	recorder := httptest.NewRecorder()
+	request, _ := http.NewRequest("GET", "/_ping", nil)
+	server.pingDocker(recorder, request)
+	if recorder.Body.String() != "" {
+		t.Errorf("Ping: Unexpected body: %s", recorder.Body.String())
+	}
+	if recorder.Code != http.StatusOK {
+		t.Errorf("Ping: Expected code %d, got: %d", http.StatusOK, recorder.Code)
+	}
+}
+
+func TestDefaultHandler(t *testing.T) {
+	server, err := NewServer("127.0.0.1:0", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.listener.Close()
+	if server.mux != server.DefaultHandler() {
+		t.Fatalf("DefaultHandler: Expected to return server.mux, got: %#v", server.DefaultHandler())
 	}
 }

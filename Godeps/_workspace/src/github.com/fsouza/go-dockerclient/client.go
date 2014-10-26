@@ -4,7 +4,7 @@
 
 // Package docker provides a client for the Docker remote API.
 //
-// See http://goo.gl/mxyql for more details on the remote API.
+// See http://goo.gl/G3plxW for more details on the remote API.
 package docker
 
 import (
@@ -21,9 +21,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
-
-	"github.com/fsouza/go-dockerclient/utils"
 )
 
 const userAgent = "go-dockerclient"
@@ -113,11 +110,11 @@ func (version ApiVersion) compare(other ApiVersion) int {
 // interaction with the API.
 type Client struct {
 	SkipServerVersionCheck bool
+	HTTPClient             *http.Client
 
 	endpoint            string
 	endpointURL         *url.URL
 	eventMonitor        *eventMonitoringState
-	client              *http.Client
 	requestedApiVersion ApiVersion
 	serverApiVersion    ApiVersion
 	expectedApiVersion  ApiVersion
@@ -142,7 +139,6 @@ func NewVersionedClient(endpoint string, apiVersionString string) (*Client, erro
 	if err != nil {
 		return nil, err
 	}
-
 	var requestedApiVersion ApiVersion
 	if strings.Contains(apiVersionString, ".") {
 		requestedApiVersion, err = NewApiVersion(apiVersionString)
@@ -150,11 +146,10 @@ func NewVersionedClient(endpoint string, apiVersionString string) (*Client, erro
 			return nil, err
 		}
 	}
-
 	return &Client{
+		HTTPClient:          http.DefaultClient,
 		endpoint:            endpoint,
 		endpointURL:         u,
-		client:              http.DefaultClient,
 		eventMonitor:        new(eventMonitoringState),
 		requestedApiVersion: requestedApiVersion,
 	}, nil
@@ -177,27 +172,19 @@ func (c *Client) checkApiVersion() error {
 	return nil
 }
 
-func parseApiVersionString(input string) (version uint16, err error) {
-	version = 0
-
-	if !strings.Contains(input, ".") {
-		return 0, fmt.Errorf("Unable to parse version '%s'", input)
-	}
-
-	arr := strings.Split(input, ".")
-
-	major, err := strconv.Atoi(arr[0])
+// Ping pings the docker server
+//
+// See http://goo.gl/stJENm for more details.
+func (c *Client) Ping() error {
+	path := "/_ping"
+	body, status, err := c.do("GET", path, nil)
 	if err != nil {
-		return version, err
+		return err
 	}
-
-	minor, err := strconv.Atoi(arr[1])
-	if err != nil {
-		return version, err
+	if status != http.StatusOK {
+		return newError(status, body)
 	}
-
-	version = uint16(major)<<8 | uint16(minor)
-	return version, nil
+	return nil
 }
 
 func (c *Client) getServerApiVersionString() (version string, err error) {
@@ -208,13 +195,11 @@ func (c *Client) getServerApiVersionString() (version string, err error) {
 	if status != http.StatusOK {
 		return "", fmt.Errorf("Received unexpected status %d while trying to retrieve the server version", status)
 	}
-
 	var versionResponse map[string]string
 	err = json.Unmarshal(body, &versionResponse)
 	if err != nil {
 		return "", err
 	}
-
 	version = versionResponse["ApiVersion"]
 	return version, nil
 }
@@ -228,14 +213,12 @@ func (c *Client) do(method, path string, data interface{}) ([]byte, int, error) 
 		}
 		params = bytes.NewBuffer(buf)
 	}
-
 	if path != "/version" && !c.SkipServerVersionCheck && c.expectedApiVersion == nil {
 		err := c.checkApiVersion()
 		if err != nil {
 			return nil, -1, err
 		}
 	}
-
 	req, err := http.NewRequest(method, c.getURL(path), params)
 	if err != nil {
 		return nil, -1, err
@@ -262,7 +245,7 @@ func (c *Client) do(method, path string, data interface{}) ([]byte, int, error) 
 		}
 		defer clientconn.Close()
 	} else {
-		resp, err = c.client.Do(req)
+		resp, err = c.HTTPClient.Do(req)
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "connection refused") {
@@ -281,7 +264,7 @@ func (c *Client) do(method, path string, data interface{}) ([]byte, int, error) 
 	return body, resp.StatusCode, nil
 }
 
-func (c *Client) stream(method, path string, setRawTerminal bool, headers map[string]string, in io.Reader, stdout, stderr io.Writer) error {
+func (c *Client) stream(method, path string, setRawTerminal, rawJSONStream bool, headers map[string]string, in io.Reader, stdout, stderr io.Writer) error {
 	if (method == "POST" || method == "PUT") && in == nil {
 		in = bytes.NewReader(nil)
 	}
@@ -320,7 +303,7 @@ func (c *Client) stream(method, path string, setRawTerminal bool, headers map[st
 		resp, err = clientconn.Do(req)
 		defer clientconn.Close()
 	} else {
-		resp, err = c.client.Do(req)
+		resp, err = c.HTTPClient.Do(req)
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "connection refused") {
@@ -337,6 +320,12 @@ func (c *Client) stream(method, path string, setRawTerminal bool, headers map[st
 		return newError(resp.StatusCode, body)
 	}
 	if resp.Header.Get("Content-Type") == "application/json" {
+		// if we want to get raw json stream, just copy it back to output
+		// without decoding it
+		if rawJSONStream {
+			_, err = io.Copy(stdout, resp.Body)
+			return err
+		}
 		dec := json.NewDecoder(resp.Body)
 		for {
 			var m jsonMessage
@@ -360,27 +349,37 @@ func (c *Client) stream(method, path string, setRawTerminal bool, headers map[st
 		if setRawTerminal {
 			_, err = io.Copy(stdout, resp.Body)
 		} else {
-			_, err = utils.StdCopy(stdout, stderr, resp.Body)
+			_, err = stdCopy(stdout, stderr, resp.Body)
 		}
 		return err
 	}
 	return nil
 }
 
-func (c *Client) hijack(method, path string, success chan struct{}, setRawTerminal bool, in io.Reader, stderr, stdout io.Writer) error {
+func (c *Client) hijack(method, path string, success chan struct{}, setRawTerminal bool, in io.Reader, stderr, stdout io.Writer, data interface{}) error {
 	if path != "/version" && !c.SkipServerVersionCheck && c.expectedApiVersion == nil {
 		err := c.checkApiVersion()
 		if err != nil {
 			return err
 		}
 	}
+
+	var params io.Reader
+	if data != nil {
+		buf, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+		params = bytes.NewBuffer(buf)
+	}
+
 	if stdout == nil {
 		stdout = ioutil.Discard
 	}
 	if stderr == nil {
 		stderr = ioutil.Discard
 	}
-	req, err := http.NewRequest(method, c.getURL(path), nil)
+	req, err := http.NewRequest(method, c.getURL(path), params)
 	if err != nil {
 		return err
 	}
@@ -403,18 +402,17 @@ func (c *Client) hijack(method, path string, success chan struct{}, setRawTermin
 		<-success
 	}
 	rwc, br := clientconn.Hijack()
-	var wg sync.WaitGroup
-	wg.Add(2)
 	errs := make(chan error, 2)
+	exit := make(chan bool)
 	go func() {
+		defer close(exit)
 		var err error
 		if setRawTerminal {
 			_, err = io.Copy(stdout, br)
 		} else {
-			_, err = utils.StdCopy(stdout, stderr, br)
+			_, err = stdCopy(stdout, stderr, br)
 		}
 		errs <- err
-		wg.Done()
 	}()
 	go func() {
 		var err error
@@ -425,14 +423,9 @@ func (c *Client) hijack(method, path string, success chan struct{}, setRawTermin
 			CloseWrite() error
 		}).CloseWrite()
 		errs <- err
-		wg.Done()
 	}()
-	wg.Wait()
-	close(errs)
-	if err := <-errs; err != nil {
-		return err
-	}
-	return nil
+	<-exit
+	return <-errs
 }
 
 func (c *Client) getURL(path string) string {

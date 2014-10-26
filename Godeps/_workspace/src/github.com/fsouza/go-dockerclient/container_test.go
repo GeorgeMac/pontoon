@@ -152,8 +152,90 @@ func TestInspectContainer(t *testing.T) {
              "Config": {
                      "Hostname": "4fa6e0f0c678",
                      "User": "",
-                     "Memory": 2.68435456e+08,
-                     "MemorySwap": 2.68435456e+08,
+                     "Memory": 17179869184,
+                     "MemorySwap": 34359738368,
+                     "AttachStdin": false,
+                     "AttachStdout": true,
+                     "AttachStderr": true,
+                     "PortSpecs": null,
+                     "Tty": false,
+                     "OpenStdin": false,
+                     "StdinOnce": false,
+                     "Env": null,
+                     "Cmd": [
+                             "date"
+                     ],
+                     "Image": "base",
+                     "Volumes": {},
+                     "VolumesFrom": ""
+             },
+             "State": {
+                     "Running": false,
+                     "Pid": 0,
+                     "ExitCode": 0,
+                     "StartedAt": "2013-05-07T14:51:42.087658+02:00",
+                     "Ghost": false
+             },
+             "Image": "b750fe79269d2ec9a3c593ef05b4332b1d1a02a62b4accb2c21d589ff2f5f2dc",
+             "NetworkSettings": {
+                     "IpAddress": "",
+                     "IpPrefixLen": 0,
+                     "Gateway": "",
+                     "Bridge": "",
+                     "PortMapping": null
+             },
+             "SysInitPath": "/home/kitty/go/src/github.com/dotcloud/docker/bin/docker",
+             "ResolvConfPath": "/etc/resolv.conf",
+             "Volumes": {},
+             "HostConfig": {
+               "Binds": null,
+               "ContainerIDFile": "",
+               "LxcConf": [],
+               "Privileged": false,
+               "PortBindings": {
+                 "80/tcp": [
+                   {
+                     "HostIp": "0.0.0.0",
+                     "HostPort": "49153"
+                   }
+                 ]
+               },
+               "Links": null,
+               "PublishAllPorts": false
+             }
+}`
+	var expected Container
+	err := json.Unmarshal([]byte(jsonContainer), &expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeRT := &FakeRoundTripper{message: jsonContainer, status: http.StatusOK}
+	client := newTestClient(fakeRT)
+	id := "4fa6e0f0c678"
+	container, err := client.InspectContainer(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*container, expected) {
+		t.Errorf("InspectContainer(%q): Expected %#v. Got %#v.", id, expected, container)
+	}
+	expectedURL, _ := url.Parse(client.getURL("/containers/4fa6e0f0c678/json"))
+	if gotPath := fakeRT.requests[0].URL.Path; gotPath != expectedURL.Path {
+		t.Errorf("InspectContainer(%q): Wrong path in request. Want %q. Got %q.", id, expectedURL.Path, gotPath)
+	}
+}
+
+func TestInspectContainerNegativeSwap(t *testing.T) {
+	jsonContainer := `{
+             "Id": "4fa6e0f0c6786287e131c3852c58a2e01cc697a68231826813597e4994f1d6e2",
+             "Created": "2013-05-07T14:51:42.087658+02:00",
+             "Path": "date",
+             "Args": [],
+             "Config": {
+                     "Hostname": "4fa6e0f0c678",
+                     "User": "",
+                     "Memory": 17179869184,
+                     "MemorySwap": -1,
                      "AttachStdin": false,
                      "AttachStdout": true,
                      "AttachStderr": true,
@@ -411,6 +493,15 @@ func TestStartContainerNotFound(t *testing.T) {
 	}
 }
 
+func TestStartContainerAlreadyRunning(t *testing.T) {
+	client := newTestClient(&FakeRoundTripper{message: "container already running", status: http.StatusNotModified})
+	err := client.StartContainer("a2334", &HostConfig{})
+	expected := &ContainerAlreadyRunning{ID: "a2334"}
+	if !reflect.DeepEqual(err, expected) {
+		t.Errorf("StartContainer: Wrong error returned. Want %#v. Got %#v.", expected, err)
+	}
+}
+
 func TestStopContainer(t *testing.T) {
 	fakeRT := &FakeRoundTripper{message: "", status: http.StatusNoContent}
 	client := newTestClient(fakeRT)
@@ -433,6 +524,15 @@ func TestStopContainerNotFound(t *testing.T) {
 	client := newTestClient(&FakeRoundTripper{message: "no such container", status: http.StatusNotFound})
 	err := client.StopContainer("a2334", 10)
 	expected := &NoSuchContainer{ID: "a2334"}
+	if !reflect.DeepEqual(err, expected) {
+		t.Errorf("StopContainer: Wrong error returned. Want %#v. Got %#v.", expected, err)
+	}
+}
+
+func TestStopContainerNotRunning(t *testing.T) {
+	client := newTestClient(&FakeRoundTripper{message: "container not running", status: http.StatusNotModified})
+	err := client.StopContainer("a2334", 10)
+	expected := &ContainerNotRunning{ID: "a2334"}
 	if !reflect.DeepEqual(err, expected) {
 		t.Errorf("StopContainer: Wrong error returned. Want %#v. Got %#v.", expected, err)
 	}
@@ -1184,9 +1284,9 @@ func TestExportContainerViaUnixSocket(t *testing.T) {
 	endpoint := "unix://" + tempSocket
 	u, _ := parseEndpoint(endpoint)
 	client := Client{
+		HTTPClient:             http.DefaultClient,
 		endpoint:               endpoint,
 		endpointURL:            u,
-		client:                 http.DefaultClient,
 		SkipServerVersionCheck: true,
 	}
 	listening := make(chan string)
@@ -1231,8 +1331,12 @@ func TestExportContainerNoId(t *testing.T) {
 	client := Client{}
 	out := stdoutMock{bytes.NewBufferString("")}
 	err := client.ExportContainer(ExportContainerOptions{OutputStream: out})
-	if err != (NoSuchContainer{}) {
-		t.Errorf("ExportContainer: wrong error. Want %#v. Got %#v.", NoSuchContainer{}, err)
+	e, ok := err.(*NoSuchContainer)
+	if !ok {
+		t.Errorf("ExportContainer: wrong error. Want NoSuchContainer. Got %#v.", e)
+	}
+	if e.ID != "" {
+		t.Errorf("ExportContainer: wrong ID. Want %q. Got %q", "", e.ID)
 	}
 }
 
@@ -1277,5 +1381,115 @@ func TestPassingNameOptToCreateContainerReturnsItInContainer(t *testing.T) {
 	}
 	if container.Name != "TestCreateContainer" {
 		t.Errorf("Container name expected to be TestCreateContainer, was %s", container.Name)
+	}
+}
+
+func TestAlwaysRestart(t *testing.T) {
+	policy := AlwaysRestart()
+	if policy.Name != "always" {
+		t.Errorf("AlwaysRestart(): wrong policy name. Want %q. Got %q", "always", policy.Name)
+	}
+	if policy.MaximumRetryCount != 0 {
+		t.Errorf("AlwaysRestart(): wrong MaximumRetryCount. Want 0. Got %d", policy.MaximumRetryCount)
+	}
+}
+
+func TestRestartOnFailure(t *testing.T) {
+	const retry = 5
+	policy := RestartOnFailure(retry)
+	if policy.Name != "on-failure" {
+		t.Errorf("RestartOnFailure(%d): wrong policy name. Want %q. Got %q", retry, "on-failure", policy.Name)
+	}
+	if policy.MaximumRetryCount != retry {
+		t.Errorf("RestartOnFailure(%d): wrong MaximumRetryCount. Want %d. Got %d", retry, retry, policy.MaximumRetryCount)
+	}
+}
+
+func TestNeverRestart(t *testing.T) {
+	policy := NeverRestart()
+	if policy.Name != "no" {
+		t.Errorf("NeverRestart(): wrong policy name. Want %q. Got %q", "always", policy.Name)
+	}
+	if policy.MaximumRetryCount != 0 {
+		t.Errorf("NeverRestart(): wrong MaximumRetryCount. Want 0. Got %d", policy.MaximumRetryCount)
+	}
+}
+
+func TestTopContainer(t *testing.T) {
+	jsonTop := `{
+  "Processes": [
+    [
+      "ubuntu",
+      "3087",
+      "815",
+      "0",
+      "01:44",
+      "?",
+      "00:00:00",
+      "cmd1"
+    ],
+    [
+      "root",
+      "3158",
+      "3087",
+      "0",
+      "01:44",
+      "?",
+      "00:00:01",
+      "cmd2"
+    ]
+  ],
+  "Titles": [
+    "UID",
+    "PID",
+    "PPID",
+    "C",
+    "STIME",
+    "TTY",
+    "TIME",
+    "CMD"
+  ]
+}`
+	var expected TopResult
+	err := json.Unmarshal([]byte(jsonTop), &expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "4fa6e0f0"
+	fakeRT := &FakeRoundTripper{message: jsonTop, status: http.StatusOK}
+	client := newTestClient(fakeRT)
+	processes, err := client.TopContainer(id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(processes, expected) {
+		t.Errorf("TopContainer: Expected %#v. Got %#v.", expected, processes)
+	}
+	if len(processes.Processes) != 2 || len(processes.Processes[0]) != 8 ||
+		processes.Processes[0][7] != "cmd1" {
+		t.Errorf("TopContainer: Process list to include cmd1. Got %#v.", expected, processes)
+	}
+	expectedURI := "/containers/" + id + "/top"
+	if !strings.HasSuffix(fakeRT.requests[0].URL.String(), expectedURI) {
+		t.Errorf("TopContainer: Expected URI to have %q. Got %q.", expectedURI, fakeRT.requests[0].URL.String())
+	}
+}
+
+func TestTopContainerNotFound(t *testing.T) {
+	client := newTestClient(&FakeRoundTripper{message: "no such container", status: http.StatusNotFound})
+	_, err := client.TopContainer("abef348", "")
+	expected := &NoSuchContainer{ID: "abef348"}
+	if !reflect.DeepEqual(err, expected) {
+		t.Errorf("StopContainer: Wrong error returned. Want %#v. Got %#v.", expected, err)
+	}
+}
+
+func TestTopContainerWithPsArgs(t *testing.T) {
+	fakeRT := &FakeRoundTripper{message: "no such container", status: http.StatusNotFound}
+	client := newTestClient(fakeRT)
+	client.TopContainer("abef348", "aux")
+	expectedURI := "/containers/abef348/top?ps_args=aux"
+	if !strings.HasSuffix(fakeRT.requests[0].URL.String(), expectedURI) {
+		t.Errorf("TopContainer: Expected URI to have %q. Got %q.", expectedURI, fakeRT.requests[0].URL.String())
 	}
 }

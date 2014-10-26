@@ -1,0 +1,8 @@
+docker:
+    host: "tcp://192.168.59.103:2376"
+    ca_pem: "/Users/georgemacrorie/.boot2docker/certs/boot2docker-vm/ca.pem"
+    cert_pem: "/Users/georgemacrorie/.boot2docker/certs/boot2docker-vm/cert.pem"
+    key_pem: "/Users/georgemacrorie/.boot2docker/certs/boot2docker-vm/key.pem"
+pontoon:
+    directory: "/var/pontoon"
+    workers: 1

@@ -2,12 +2,14 @@ package project
 
 import (
 	"bytes"
-	"github.com/GeorgeMac/pontoon/archive"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
+
+	"github.com/GeorgeMac/pontoon/archive"
 )
 
 var (
@@ -34,6 +36,9 @@ func NewGitProjects(localDir string) (g *GitProjects, err error) {
 
 	stats, err := ioutil.ReadDir(localDir)
 	for _, stat := range stats {
+		if !stat.IsDir() {
+			continue
+		}
 		fname := path.Join(localDir, stat.Name())
 		p := buildProject(fname)
 		if err = p.Pull(); err != nil {
@@ -74,8 +79,30 @@ func NewGitProject(local, remote string) (g *GitProject, err error) {
 	return
 }
 
+// WriteTo writes a tarball of the git project
+// to the provided io.Writer. It caches the tarball
+// besides the project directory on disk.
 func (g *GitProject) WriteTo(wr io.Writer) error {
-	return archive.Dir(g.dir, wr)
+	ref, err := g.Ref()
+	if err != nil {
+		return err
+	}
+
+	cacheproj := fmt.Sprintf("%s-%s.tar", g.dir, ref)
+	fi, err := os.Open(cacheproj)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		err = nil
+		fi, err = os.Create(cacheproj)
+		if err != nil {
+			return err
+		}
+		return archive.Dir(g.dir, io.MultiWriter(wr, fi))
+	}
+	_, err = io.Copy(wr, fi)
+	return err
 }
 
 func (g *GitProject) Pull() error {
