@@ -2,14 +2,15 @@ package build
 
 import (
 	"bytes"
+	"io"
+
 	"github.com/GeorgeMac/pontoon/project"
 	"github.com/fsouza/go-dockerclient"
-	"io"
 )
 
 type BuildJobFactory struct {
 	Client   *docker.Client
-	Projects project.Projects
+	Projects *project.GitProjects
 }
 
 func (b *BuildJobFactory) NewJob(name, url string) (bj *BuildJob, err error) {
@@ -44,6 +45,7 @@ func (b *BuildJob) Run() error {
 		OutputStream:   b.out,
 		RmTmpContainer: true,
 		NoCache:        true,
+		RawJSONStream:  true,
 	})
 }
 

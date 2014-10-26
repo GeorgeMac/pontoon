@@ -4,8 +4,8 @@
 	"Deps": [
 		{
 			"ImportPath": "github.com/fsouza/go-dockerclient",
-			"Comment": "0.2.1-177-g1948166",
-			"Rev": "194816684825a3abf28d60e5243ec5240608414d"
+			"Comment": "0.2.1-267-g15d2c6e",
+			"Rev": "15d2c6e3eb670c545d0af0604d7f9aff3871af04"
 		},
 		{
 			"ImportPath": "github.com/gorilla/context",

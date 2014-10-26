@@ -5,16 +5,24 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 )
+
+var IgnoreGitDir bool = true
+var gitdir *regexp.Regexp = regexp.MustCompile("\\.git")
 
 func Dir(dir string, wr io.Writer) error {
 	tr := tar.NewWriter(wr)
 
 	walkFn := func(path string, info os.FileInfo, err error) error {
-		if info.Mode().IsDir() {
+		if err != nil {
+			return err
+		}
+
+		if info.Mode().IsDir() || (IgnoreGitDir && gitdir.Match([]byte(path))) {
 			return nil
 		}
-		// Because of scoping we can reference the external root_directory variable
+
 		rel_path := path[len(dir):]
 		if len(rel_path) == 0 {
 			return nil

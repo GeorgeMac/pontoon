@@ -12,9 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fsouza/go-dockerclient"
-	"github.com/fsouza/go-dockerclient/utils"
-	"github.com/gorilla/mux"
 	mathrand "math/rand"
 	"net"
 	"net/http"
@@ -23,6 +20,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsouza/go-dockerclient"
+	"github.com/gorilla/mux"
 )
 
 // DockerServer represents a programmable, concurrent (not much), HTTP server
@@ -31,7 +31,7 @@ import (
 // It can used in standalone mode, listening for connections or as an arbitrary
 // HTTP handler.
 //
-// For more details on the remote API, check http://goo.gl/yMI1S.
+// For more details on the remote API, check http://goo.gl/G3plxW.
 type DockerServer struct {
 	containers     []*docker.Container
 	cMut           sync.RWMutex
@@ -88,6 +88,7 @@ func (s *DockerServer) buildMuxer() {
 	s.mux.Path("/containers/json").Methods("GET").HandlerFunc(s.handlerWrapper(s.listContainers))
 	s.mux.Path("/containers/create").Methods("POST").HandlerFunc(s.handlerWrapper(s.createContainer))
 	s.mux.Path("/containers/{id:.*}/json").Methods("GET").HandlerFunc(s.handlerWrapper(s.inspectContainer))
+	s.mux.Path("/containers/{id:.*}/top").Methods("GET").HandlerFunc(s.handlerWrapper(s.topContainer))
 	s.mux.Path("/containers/{id:.*}/start").Methods("POST").HandlerFunc(s.handlerWrapper(s.startContainer))
 	s.mux.Path("/containers/{id:.*}/stop").Methods("POST").HandlerFunc(s.handlerWrapper(s.stopContainer))
 	s.mux.Path("/containers/{id:.*}/pause").Methods("POST").HandlerFunc(s.handlerWrapper(s.pauseContainer))
@@ -102,6 +103,9 @@ func (s *DockerServer) buildMuxer() {
 	s.mux.Path("/images/{name:.*}/json").Methods("GET").HandlerFunc(s.handlerWrapper(s.inspectImage))
 	s.mux.Path("/images/{name:.*}/push").Methods("POST").HandlerFunc(s.handlerWrapper(s.pushImage))
 	s.mux.Path("/events").Methods("GET").HandlerFunc(s.listEvents)
+	s.mux.Path("/_ping").Methods("GET").HandlerFunc(s.handlerWrapper(s.pingDocker))
+	s.mux.Path("/images/load").Methods("POST").HandlerFunc(s.handlerWrapper(s.loadImage))
+	s.mux.Path("/images/{id:.*}/get").Methods("GET").HandlerFunc(s.handlerWrapper(s.getImage))
 }
 
 // PrepareFailure adds a new expected failure based on a URL regexp it receives
@@ -169,6 +173,12 @@ func (s *DockerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Returns default http.Handler mux, it allows customHandlers to call the
+// default behavior if wanted.
+func (s *DockerServer) DefaultHandler() http.Handler {
+	return s.mux
+}
+
 func (s *DockerServer) handlerWrapper(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		for errorID, urlRegexp := range s.failures {
@@ -216,6 +226,11 @@ func (s *DockerServer) listImages(w http.ResponseWriter, r *http.Request) {
 		result[i] = docker.APIImages{
 			ID:      image.ID,
 			Created: image.Created.Unix(),
+		}
+		for tag, id := range s.imgIDs {
+			if id == image.ID {
+				result[i].RepoTags = append(result[i].RepoTags, tag)
+			}
 		}
 	}
 	s.cMut.RUnlock()
@@ -325,6 +340,29 @@ func (s *DockerServer) inspectContainer(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(container)
 }
 
+func (s *DockerServer) topContainer(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	container, _, err := s.findContainer(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !container.State.Running {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Container %s is not running", id)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	result := docker.TopResult{
+		Titles: []string{"UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"},
+		Processes: [][]string{
+			{"root", "7535", "7516", "0", "03:20", "?", "00:00:00", container.Path + " " + strings.Join(container.Args, " ")},
+		},
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
 func (s *DockerServer) startContainer(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	container, _, err := s.findContainer(id)
@@ -401,7 +439,7 @@ func (s *DockerServer) attachContainer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	outStream := utils.NewStdWriter(w, utils.Stdout)
+	outStream := newStdWriter(w, stdout)
 	fmt.Fprintf(outStream, "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.raw-stream\r\n\r\n")
 	if container.State.Running {
 		fmt.Fprintf(outStream, "Container %q is running\n", container.ID)
@@ -562,8 +600,9 @@ func (s *DockerServer) pushImage(w http.ResponseWriter, r *http.Request) {
 func (s *DockerServer) removeImage(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	s.iMut.RLock()
+	var tag string
 	if img, ok := s.imgIDs[id]; ok {
-		id = img
+		id, tag = img, id
 	}
 	s.iMut.RUnlock()
 	_, index, err := s.findImageByID(id)
@@ -576,6 +615,9 @@ func (s *DockerServer) removeImage(w http.ResponseWriter, r *http.Request) {
 	defer s.iMut.Unlock()
 	s.images[index] = s.images[len(s.images)-1]
 	s.images = s.images[:len(s.images)-1]
+	if tag != "" {
+		delete(s.imgIDs, tag)
+	}
 }
 
 func (s *DockerServer) inspectImage(w http.ResponseWriter, r *http.Request) {
@@ -615,6 +657,10 @@ func (s *DockerServer) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *DockerServer) pingDocker(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *DockerServer) generateEvent() *docker.APIEvents {
 	var eventType string
 	switch mathrand.Intn(4) {
@@ -633,4 +679,14 @@ func (s *DockerServer) generateEvent() *docker.APIEvents {
 		From:   "mybase:latest",
 		Time:   time.Now().Unix(),
 	}
+}
+
+func (s *DockerServer) loadImage(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *DockerServer) getImage(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/tar")
+
 }

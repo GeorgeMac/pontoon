@@ -2,8 +2,9 @@ package jobs
 
 import (
 	"fmt"
-	"github.com/GeorgeMac/pontoon/monitor"
 	"sync"
+
+	"github.com/GeorgeMac/pontoon/monitor"
 )
 
 type Store struct {
@@ -18,16 +19,15 @@ func NewStore() *Store {
 	}
 }
 
-func (m *Store) Get(id string) (t *Job, err error) {
+func (m *Store) Get(id string) (*Job, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var ok bool
-	if t, ok = m.mo[id]; !ok {
-		err = DoesNotExistError{id}
-		return
+	t, ok := m.mo[id]
+	if !ok {
+		return nil, DoesNotExistError{id}
 	}
-	return
+	return t, nil
 }
 
 func (m *Store) Put(id string, t *Job) (err error) {

@@ -3,12 +3,14 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/GeorgeMac/pontoon/build"
-	"github.com/GeorgeMac/pontoon/jobs"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/GeorgeMac/pontoon/build"
+	"github.com/GeorgeMac/pontoon/jobs"
+	"github.com/GeorgeMac/pontoon/monitor"
+	"github.com/gorilla/mux"
 )
 
 const BUILD_TIMEOUT time.Duration = 2 * time.Minute
@@ -53,6 +55,7 @@ func (s *Service) job(w http.ResponseWriter, req *http.Request) {
 	id, ok := mux.Vars(req)["id"]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	if err := json.NewEncoder(w).Encode(s.store.FullReport(id)); err != nil {
@@ -70,14 +73,17 @@ func (s *Service) build(w http.ResponseWriter, req *http.Request) {
 	id, ok := mux.Vars(req)["id"]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	job, err := s.store.Get(id)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(&BuildResponse{
-			Msg: fmt.Sprintf("Build with name %s is missing", id),
+			Msg:    fmt.Sprintf("Build with name %s is missing", id),
+			Status: monitor.UNKNOWN.String(),
 		})
+		return
 	}
 
 	// push the job in to the build queue
@@ -109,6 +115,7 @@ func (s *Service) submit(w http.ResponseWriter, req *http.Request) {
 			Msg:    fmt.Sprintf("Build with name %s already exists", request.Name),
 			Status: st.Status,
 		})
+		return
 	}
 
 	if err := s.store.Put(request.Name, job); err != nil {
