@@ -1,9 +1,13 @@
 package jobs
 
 import (
-	"github.com/GeorgeMac/pontoon/monitor"
+	"errors"
 	"log"
+
+	"github.com/GeorgeMac/pontoon/monitor"
 )
+
+var NotEnoughWorkersError = errors.New("Not Enough Workers")
 
 type JobQueue struct {
 	workers int
@@ -11,8 +15,12 @@ type JobQueue struct {
 	stop    chan struct{}
 }
 
-func NewJobQueue(workers int) (q *JobQueue) {
-	q = &JobQueue{
+func NewJobQueue(workers int) (*JobQueue, error) {
+	if workers <= 0 {
+		return nil, NotEnoughWorkersError
+	}
+
+	q := &JobQueue{
 		workers: workers,
 		jobs:    make(chan *Job, workers),
 		stop:    make(chan struct{}),
@@ -22,7 +30,7 @@ func NewJobQueue(workers int) (q *JobQueue) {
 		go q.begin()
 	}
 
-	return
+	return q, nil
 }
 
 func (q *JobQueue) begin() {

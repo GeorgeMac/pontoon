@@ -16,7 +16,7 @@ var (
 	Stdout, Stderr *os.File = os.Stdout, os.Stderr
 )
 
-var buildProject func(string) Project = func(dir string) Project {
+var buildProject func(string) *GitProject = func(dir string) *GitProject {
 	return &GitProject{
 		git: git(dir),
 		dir: dir,
@@ -25,13 +25,13 @@ var buildProject func(string) Project = func(dir string) Project {
 
 type GitProjects struct {
 	localDir string
-	cache    map[string]Project
+	cache    map[string]*GitProject
 }
 
 func NewGitProjects(localDir string) (g *GitProjects, err error) {
 	g = &GitProjects{
 		localDir: localDir,
-		cache:    map[string]Project{},
+		cache:    map[string]*GitProject{},
 	}
 
 	stats, err := ioutil.ReadDir(localDir)
@@ -50,11 +50,11 @@ func NewGitProjects(localDir string) (g *GitProjects, err error) {
 	return
 }
 
-func (g *GitProjects) Get(url string) (p Project, err error) {
+func (g *GitProjects) Get(url string) (p *GitProject, err error) {
 	var ok bool
 	_, name := path.Split(url)
 	if p, ok = g.cache[path.Join(g.localDir, name)]; ok {
-		p.Pull()
+		err = p.Pull()
 		return
 	}
 

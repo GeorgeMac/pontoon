@@ -10,7 +10,7 @@ import (
 
 type BuildJobFactory struct {
 	Client   *docker.Client
-	Projects project.Projects
+	Projects *project.GitProjects
 }
 
 func (b *BuildJobFactory) NewJob(name, url string) (bj *BuildJob, err error) {

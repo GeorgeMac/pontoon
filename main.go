@@ -49,7 +49,10 @@ func main() {
 	}
 
 	// construct and begin a queue for jobs
-	queue := jobs.NewJobQueue(pconf.Workers)
+	queue, err := jobs.NewJobQueue(pconf.Workers)
+	if err != nil {
+		panic(err)
+	}
 
 	// create the new http service
 	s := service.NewService(queue, factory)

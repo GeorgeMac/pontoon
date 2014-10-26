@@ -3,7 +3,6 @@ package archive
 import (
 	"archive/tar"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,8 +27,6 @@ func Dir(dir string, wr io.Writer) error {
 		if len(rel_path) == 0 {
 			return nil
 		}
-
-		log.Println(rel_path)
 
 		fr, err := os.Open(path)
 		if err != nil {
